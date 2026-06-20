@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>新增行程 — RailGuard AI</title>
+  <link rel="stylesheet" href="../css/main.css">
+  <style>
+    .add-trip-layout {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      min-height: calc(100vh - 112px);
+      padding: var(--space-md) var(--space-md) var(--space-lg);
+    }
+    .add-trip-card { width: 100%; max-width: 560px; }
+    .add-trip-card .card { padding: var(--space-md); }
+    .add-trip-card .form-group { margin-bottom: 10px; }
+    .add-trip-card .form-label { margin-bottom: 4px; font-size: 13px; }
+    .add-trip-card .form-control { padding: 7px 10px; font-size: 14px; }
+    .add-trip-card .type-toggle button { padding: 7px 14px; font-size: 13px; }
+
+    /* Loading */
+    .analysis-loading {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 16px; padding: 32px 0;
+    }
+    .analysis-spinner {
+      width: 48px; height: 48px;
+      border: 4px solid #E5E7EB;
+      border-top-color: var(--color-primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .analysis-step {
+      font-size: 14px; color: var(--color-text-sub);
+      font-weight: 500; text-align: center;
+      min-height: 22px; transition: opacity 0.3s;
+    }
+    .analysis-dots::after {
+      content: '';
+      animation: dots 1.2s steps(4, end) infinite;
+    }
+    @keyframes dots {
+      0%   { content: ''; }
+      25%  { content: '.'; }
+      50%  { content: '..'; }
+      75%  { content: '...'; }
+    }
+
+    /* ── 車次選擇卡片 ── */
+    .train-select-title {
+      font-size: 15px; font-weight: 700;
+      color: var(--color-text-main);
+      margin-bottom: 4px;
+    }
+    .train-select-sub {
+      font-size: 12px; color: var(--color-text-sub);
+      margin-bottom: 16px;
+    }
+    .train-cards { 
+      display: flex; 
+      flex-direction: column; 
+      gap: 10px; 
+      margin-bottom: 16px; 
+      max-height: 420px; 
+      overflow-y: auto; 
+      padding-right: 4px;
+    }
+
+    .train-card {
+      position: relative;
+      border: 2px solid #E5E7EB;
+      border-radius: 14px;
+      padding: 12px 14px 10px;
+      cursor: pointer;
+      transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+      background: #fff;
+      user-select: none;
+    }
+    .train-card:hover {
+      border-color: var(--color-primary);
+      box-shadow: 0 2px 12px rgba(var(--color-primary-rgb, 59,130,246), 0.13);
+    }
+    .train-card.selected {
+      border-color: var(--color-primary);
+      background: #EFF6FF;
+      box-shadow: 0 2px 12px rgba(59,130,246,0.18);
+    }
+
+    /* 推薦角標 */
+    .train-recommend-badge {
+      position: absolute; top: -1px; right: 14px;
+      background: var(--color-primary);
+      color: #fff;
+      font-size: 11px; font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 0 0 8px 8px;
+      letter-spacing: 0.03em;
+    }
+
+    .train-card-header {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 8px;
+    }
+    .train-type-badge {
+      font-size: 11px; font-weight: 700;
+      padding: 2px 8px; border-radius: 20px;
+      background: #DBEAFE; color: #1D4ED8;
+      white-space: nowrap;
+    }
+    .train-no {
+      font-size: 13px; color: var(--color-text-sub); font-weight: 500;
+    }
+    .train-select-icon {
+      margin-left: auto;
+      width: 20px; height: 20px;
+      border: 2px solid #D1D5DB; border-radius: 50%;
+      transition: background 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .train-card.selected .train-select-icon {
+      background: var(--color-primary);
+      border-color: var(--color-primary);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .train-card.selected .train-select-icon::after {
+      content: '✓';
+      color: #fff; font-size: 12px; font-weight: 700;
+    }
+
+    .train-time-row {
+      display: flex; align-items: flex-end; gap: 6px;
+    }
+    .train-dep-time {
+      font-size: 28px; font-weight: 800;
+      color: var(--color-text-main); line-height: 1;
+    }
+    .train-arr-time {
+      font-size: 13px; color: var(--color-text-sub); margin-bottom: 2px;
+    }
+    .train-diff-badge {
+      margin-left: auto;
+      font-size: 12px; font-weight: 600;
+      padding: 2px 8px; border-radius: 12px;
+      background: #F3F4F6; color: var(--color-text-sub);
+      align-self: center;
+    }
+    .train-diff-badge.early { background: #ECFDF5; color: #065F46; }
+    .train-diff-badge.later { background: #EFF6FF; color: #1D4ED8; }
+
+    /* 結果卡片 */
+    .result-card {
+      border-radius: var(--radius-md);
+      padding: var(--space-md);
+      margin-bottom: var(--space-md);
+    }
+    .result-card.normal  { background: #ECFDF5; border: 1.5px solid #6EE7B7; }
+    .result-card.warning { background: #FFFBEB; border: 1.5px solid #FCD34D; }
+    .result-card.high    { background: #FEF2F2; border: 1.5px solid #FCA5A5; }
+    .result-card .result-icon { font-size: 32px; margin-bottom: 8px; }
+    .result-card .result-title { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+    .result-card .result-sub   { font-size: 13px; color: var(--color-text-sub); margin-bottom: 12px; }
+    .result-card .result-delay {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 14px; font-weight: 600;
+      padding: 4px 12px; border-radius: 20px; margin-bottom: 12px;
+    }
+    .result-card.normal  .result-delay { background: #D1FAE5; color: #065F46; }
+    .result-card.warning .result-delay { background: #FEF3C7; color: #92400E; }
+    .result-card.high    .result-delay { background: #FEE2E2; color: #991B1B; }
+
+    .alt-suggestions { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .alt-item {
+      display: flex; align-items: flex-start; gap: 10px;
+      background: rgba(255,255,255,0.75); border-radius: var(--radius-sm);
+      padding: 10px 12px; font-size: 13px;
+    }
+    .alt-item-icon { font-size: 18px; flex-shrink: 0; }
+    .alt-item-label { font-size: 11px; color: var(--color-text-sub); font-weight: 600; margin-bottom: 2px; }
+    .alt-item-action { font-weight: 600; color: var(--color-text-main); }
+    .alt-item-detail { color: var(--color-text-sub); font-size: 12px; }
+
+    .result-added-tag {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 12px; font-weight: 600;
+      padding: 3px 10px; border-radius: 12px;
+      background: #FEF3C7; color: #92400E; margin-top: 8px;
+    }
+    .result-added-tag.high { background: #FEE2E2; color: #991B1B; }
+
+    /* 錯誤提示 */
+    .no-train-msg {
+      text-align: center; padding: 24px 0;
+      color: var(--color-text-sub); font-size: 14px;
+    }
+  </style>
+</head>
+<body class="app-layout">
+
+<script src="../js/storage.js"></script>
+<script src="../js/tdx.js"></script>
+<script src="../js/nav.js"></script>
+<script>requireAuth(); renderNav('add-trip');</script>
+
+<main class="add-trip-layout">
+  <div class="add-trip-card">
+    <div class="page-header" style="padding-top:0;padding-bottom:var(--space-sm)">
+      <h1>新增行程</h1>
+      <p>輸入出發時間，系統將為您找到最近的班次</p>
+    </div>
+
+    <div class="card">
+
+      <!-- ① 表單輸入 -->
+      <div id="form-content">
+        <div class="form-group">
+          <label class="form-label">行程類型</label>
+          <div class="type-toggle">
+            <button type="button" id="t-single" class="active">📅 單次行程</button>
+            <button type="button" id="t-recurring">🔁 固定行程</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="from">出發地</label>
+            <select class="form-control" id="from"><option value="">請選擇出發地</option></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="to">目的地</label>
+            <select class="form-control" id="to"><option value="">請選擇目的地</option></select>
+          </div>
+        </div>
+        <div class="form-group" id="date-group">
+          <label class="form-label" for="date">日期</label>
+          <input type="date" class="form-control" id="date">
+        </div>
+        <div class="form-group" id="days-group" style="display:none">
+          <label class="form-label">星期</label>
+          <div class="day-checkboxes" id="day-checkboxes"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="time">預計出發時間</label>
+          <input type="time" class="form-control" id="time">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="note">備註（選填）</label>
+          <input type="text" class="form-control" id="note" placeholder="例：上班通勤、高鐵出差、家庭旅遊">
+        </div>
+        <div style="display:flex;gap:var(--space-sm);margin-top:var(--space-sm)">
+          <button class="btn btn-secondary" onclick="window.location.href='trips.html'">取消</button>
+          <button class="btn btn-primary" style="flex:1" id="search-btn">🔍 查詢附近班次</button>
+        </div>
+      </div>
+
+      <!-- ② 查詢班次中 -->
+      <div id="searching-state" style="display:none">
+        <div class="analysis-loading">
+          <div class="analysis-spinner"></div>
+          <div class="analysis-step analysis-dots" id="search-step-text">連線至交通部 TDX</div>
+          <div style="font-size:12px;color:var(--color-text-sub)">正在查詢台鐵即時班表</div>
+        </div>
+      </div>
+
+      <!-- ③ 選擇車次 -->
+      <div id="train-select-state" style="display:none">
+        <div class="train-select-title">請選擇您要搭乘的班次</div>
+        <div class="train-select-sub" id="train-select-sub"></div>
+        <div class="train-cards" id="train-cards"></div>
+        <div style="display:flex;gap:var(--space-sm);margin-top:var(--space-sm)">
+          <button class="btn btn-secondary" id="back-to-form-btn">← 重新輸入</button>
+          <button class="btn btn-primary" style="flex:1" id="confirm-train-btn" disabled>🛡️ 建立監控行程</button>
+        </div>
+      </div>
+
+      <!-- ④ 分析中 -->
+      <div id="analysis-state" style="display:none">
+        <div class="analysis-loading">
+          <div class="analysis-spinner"></div>
+          <div class="analysis-step analysis-dots" id="analysis-step-text">查詢列車延誤資料</div>
+          <div style="font-size:12px;color:var(--color-text-sub)">正在為您建立監控行程</div>
+        </div>
+      </div>
+
+      <!-- ⑤ 監控結果 -->
+      <div id="result-state" style="display:none">
+        <div id="result-card-wrap"></div>
+        <div style="display:flex;gap:var(--space-sm);justify-content:center;margin-top:var(--space-sm)">
+          <button class="btn btn-secondary" onclick="window.location.reload()">繼續新增</button>
+          <button class="btn btn-primary" onclick="window.location.href='home.html'">查看首頁</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<script>
+// ── 站點清單 ──
+const STATIONS = ["南港","台北","板橋","桃園","中壢","新竹","苗栗","台中","彰化","斗六","嘉義","台南","左營"];
+const DAYS_INFO = [
+  {key:'Monday',label:'週一'},{key:'Tuesday',label:'週二'},{key:'Wednesday',label:'週三'},
+  {key:'Thursday',label:'週四'},{key:'Friday',label:'週五'},{key:'Saturday',label:'週六'},
+  {key:'Sunday',label:'週日'}
+];
+
+['from','to'].forEach(id => {
+  const sel = document.getElementById(id);
+  STATIONS.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o); });
+});
+
+const dayContainer = document.getElementById('day-checkboxes');
+DAYS_INFO.forEach(d => {
+  dayContainer.innerHTML += `<input type="checkbox" class="day-checkbox" id="d-${d.key}" value="${d.key}"><label class="day-label" for="d-${d.key}">${d.label}</label>`;
+});
+
+let tripType = 'single';
+document.getElementById('t-single').addEventListener('click', () => {
+  tripType = 'single';
+  document.getElementById('t-single').classList.add('active');
+  document.getElementById('t-recurring').classList.remove('active');
+  document.getElementById('date-group').style.display = '';
+  document.getElementById('days-group').style.display = 'none';
+});
+document.getElementById('t-recurring').addEventListener('click', () => {
+  tripType = 'recurring';
+  document.getElementById('t-recurring').classList.add('active');
+  document.getElementById('t-single').classList.remove('active');
+  document.getElementById('date-group').style.display = 'none';
+  document.getElementById('days-group').style.display = '';
+});
+
+const today = new Date();
+document.getElementById('date').value = today.toISOString().slice(0,10);
+
+// ── 全域狀態 ──
+let tripFormData   = null;   // 表單資料
+let nearbyTrains   = null;   // { before, after }
+let selectedTrain  = null;   // 使用者選擇的車次
+
+// ── Step 1：查詢班次 ──
+const SEARCH_STEPS = ['連線至交通部 TDX','取得 Token 授權','查詢台鐵班表','比對出發時間','整理附近班次'];
+
+function animateSteps(el, steps, interval = 800) {
+  let i = 0;
+  el.textContent = steps[0];
+  return setInterval(() => { i = (i + 1) % steps.length; el.textContent = steps[i]; }, interval);
+}
+
+function timeDiff(depTime, targetTime) {
+  const toMins = t => { const [h,m] = t.split(':').map(Number); return h*60+m; };
+  return toMins(depTime) - toMins(targetTime);
+}
+
+function formatDiff(diff) {
+  const abs = Math.abs(diff);
+  if (diff < 0)  return { text: `出發前 ${abs} 分`, cls: 'early' };
+  if (diff === 0) return { text: '出發時刻準點', cls: 'later' };
+  return { text: `出發後 ${abs} 分`, cls: 'later' };
+}
+
+document.getElementById('search-btn').addEventListener('click', async () => {
+  const from = document.getElementById('from').value;
+  const to   = document.getElementById('to').value;
+  const time = document.getElementById('time').value;
+  const note = document.getElementById('note').value.trim();
+
+  if (!from) { showToast('請選擇出發地', 'error'); return; }
+  if (!to)   { showToast('請選擇目的地', 'error'); return; }
+  if (from === to) { showToast('出發地與目的地不能相同', 'error'); return; }
+  if (!time) { showToast('請輸入出發時間', 'error'); return; }
+
+  tripFormData = { from, to, time, note, type: tripType };
+  if (tripType === 'single') {
+    const date = document.getElementById('date').value;
+    if (!date) { showToast('請選擇日期', 'error'); return; }
+    tripFormData.date = date;
+    tripFormData.days = [];
+  } else {
+    const days = [...document.querySelectorAll('#day-checkboxes .day-checkbox:checked')].map(c => c.value);
+    if (days.length === 0) { showToast('請至少選擇一個星期', 'error'); return; }
+    tripFormData.days = days;
+    tripFormData.date = '';
+  }
+
+  // 切換到「查詢中」
+  document.getElementById('form-content').style.display = 'none';
+  document.getElementById('searching-state').style.display = '';
+
+  const stepEl = document.getElementById('search-step-text');
+  const timer = animateSteps(stepEl, SEARCH_STEPS, 700);
+
+  try {
+    const queryDate = tripFormData.date || today.toISOString().slice(0,10);
+    nearbyTrains = await queryNearbyTrains(from, to, time, queryDate);
+    clearInterval(timer);
+    showTrainSelector(from, to, time);
+  } catch(err) {
+    clearInterval(timer);
+    showToast('班表查詢失敗，請稍後再試', 'error');
+    document.getElementById('searching-state').style.display = 'none';
+    document.getElementById('form-content').style.display = '';
+  }
+});
+
+// ── Step 2：顯示班次選擇卡 ──
+function showTrainSelector(from, to, targetTime) {
+  document.getElementById('searching-state').style.display = 'none';
+  document.getElementById('train-select-state').style.display = '';
+
+  document.getElementById('train-select-sub').textContent =
+    `您輸入的出發時間：${targetTime}｜${from} → ${to}`;
+
+  const container = document.getElementById('train-cards');
+  container.innerHTML = '';
+  selectedTrain = null;
+  document.getElementById('confirm-train-btn').disabled = true;
+
+  const { candidates, recommended } = nearbyTrains;
+
+  if (candidates.length === 0) {
+    container.innerHTML = `<div class="no-train-msg">😕 找不到附近的班次，請嘗試其他時間</div>`;
+    return;
+  }
+
+  candidates.forEach(({ key, train }) => {
+    const diff  = timeDiff(train.departTime, targetTime);
+    const dfmt  = formatDiff(diff);
+    const isRec = key === recommended;
+
+    const card = document.createElement('div');
+    card.className = 'train-card';
+    card.dataset.key = key;
+
+    const arrHtml = train.arrivalTime
+      ? `<span class="train-arr-time">→ 到達 ${train.arrivalTime}</span>` : '';
+
+    // 延誤標示：三種狀態
+    // delayMins = null  → 尚未更新（班次還沒進 LiveBoard）
+    // delayMins = 0     → 準點
+    // delayMins > 0     → 延誤 N 分
+    let delayHtml;
+    if (!train.liveAvailable) {
+      // 非今天或 LiveBoard API 失敗，不顯示即時狀態
+      delayHtml = `<span class="train-diff-badge ${dfmt.cls}">${dfmt.text}</span>`;
+    } else if (train.delayMins === null) {
+      delayHtml = `<span class="train-diff-badge" style="background:#F3F4F6;color:#6B7280">尚未更新</span>`;
+    } else if (train.delayMins === 0) {
+      delayHtml = `<span class="train-diff-badge" style="background:#ECFDF5;color:#065F46">🟢 準點</span>`;
+    } else {
+      delayHtml = `<span class="train-diff-badge" style="background:#FEF3C7;color:#92400E">⚠️ 延誤 ${train.delayMins} 分</span>`;
+    }
+
+    card.innerHTML = `
+      ${isRec ? '<div class="train-recommend-badge">⭐ 推薦</div>' : ''}
+      <div class="train-card-header">
+        <span class="train-type-badge">${train.trainType}</span>
+        <span class="train-no">${train.trainNo} 次</span>
+        <div class="train-select-icon"></div>
+      </div>
+      <div class="train-time-row">
+        <span class="train-dep-time">${train.departTime}</span>
+        ${arrHtml}
+        ${delayHtml}
+      </div>`;
+
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.train-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      selectedTrain = train;
+      document.getElementById('confirm-train-btn').disabled = false;
+    });
+
+    container.appendChild(card);
+
+    // 預設選中推薦的那張
+    if (isRec) card.click();
+  });
+}
+
+// ── 返回表單 ──
+document.getElementById('back-to-form-btn').addEventListener('click', () => {
+  document.getElementById('train-select-state').style.display = 'none';
+  document.getElementById('form-content').style.display = '';
+  selectedTrain = null;
+});
+
+// ── Step 3：確認車次 → 建立監控 ──
+const ANALYSIS_STEPS = ['查詢列車即時延誤','分析高鐵替代方案','AI 產生建議方案','完成行程建立'];
+
+document.getElementById('confirm-train-btn').addEventListener('click', async () => {
+  if (!selectedTrain) return;
+
+  // 用選定的車次時間覆蓋 tripFormData
+  const finalTripData = {
+    ...tripFormData,
+    time: selectedTrain.departTime,
+    trainNo:   selectedTrain.trainNo,
+    trainType: selectedTrain.trainType
+  };
+
+  // 切換到「分析中」
+  document.getElementById('train-select-state').style.display = 'none';
+  document.getElementById('analysis-state').style.display = '';
+
+  const stepEl = document.getElementById('analysis-step-text');
+  const timer = animateSteps(stepEl, ANALYSIS_STEPS, 900);
+
+  // 先儲存行程（預設 normal）
+  const saved = addTrip(finalTripData);
+
+  // ── 修正：直接沿用「選擇車次」步驟已查到的即時延誤資料來判斷風險，
+  // 不再對 TDX 重新發送一次完整查詢。
+  // 原因：重新查詢需要再打一次 DailyTrainTimetable + StationLiveBoard，
+  // 若此時 TDX 暫時失敗或限流，會被 queryTRADelay 靜默吞掉並回傳「準點/normal」，
+  // 導致使用者明明選了誤點車次，畫面卻永遠顯示綠色「行程建立成功」。
+  // selectedTrain 本身已經是在「查詢附近班次」步驟中以同一邏輯查到的即時資料，
+  // 直接使用即可，同時減少對 TDX 的重複請求次數（降低限流機率）。
+  let analysis;
+  try {
+    const liveAvailable = !!selectedTrain.liveAvailable;
+    const delayMinutes  = liveAvailable ? selectedTrain.delayMins : null;
+    let status = 'normal';
+    if (liveAvailable && delayMinutes !== null) {
+      if (delayMinutes >= 16) status = 'high';
+      else if (delayMinutes >= 1) status = 'warning';
+    }
+
+    let alert = null;
+    if (status !== 'normal') {
+      const queryDate = finalTripData.date || today.toISOString().slice(0,10);
+      let suggestions = [];
+      try {
+        suggestions = await buildSuggestions(finalTripData.from, finalTripData.to, selectedTrain.departTime, queryDate, delayMinutes);
+      } catch(e) {}
+      alert = {
+        title:  status === 'high' ? '高風險預警' : '列車延誤預警',
+        reason: `${selectedTrain.trainType} ${selectedTrain.trainNo} 次｜列車延誤 ${delayMinutes} 分鐘，請考慮以下替代方案。`,
+        suggestions
+      };
+    }
+
+    analysis = {
+      trainNo: selectedTrain.trainNo,
+      trainType: selectedTrain.trainType,
+      departTime: selectedTrain.departTime,
+      delayMinutes,
+      liveAvailable,
+      risk: status,
+      alert
+    };
+  } catch(err) {
+    clearInterval(timer);
+    updateTrip(saved.id, { delayMins: null, liveAvailable: false });
+    document.getElementById('analysis-state').style.display = 'none';
+    document.getElementById('result-state').style.display = '';
+    document.getElementById('result-card-wrap').innerHTML = `
+      <div class="result-card normal" style="text-align:center">
+        <div class="result-icon">✅</div>
+        <div class="result-title">行程建立成功</div>
+        <div class="result-sub">${finalTripData.from} → ${finalTripData.to}　${selectedTrain.trainType} ${selectedTrain.trainNo} 次　${selectedTrain.departTime}</div>
+        <div class="result-delay">🟢 已加入監控</div>
+        <div style="font-size:12px;color:var(--color-text-sub);margin-top:8px">⚠ TDX 即時查詢暫時無法連線，將持續監控</div>
+      </div>`;
+    return;
+  }
+
+  clearInterval(timer);
+
+  // 更新行程風險
+  updateTrip(saved.id, {
+    risk:   analysis.risk,
+    alert:  analysis.alert,
+    delayMins:     analysis.delayMinutes,   // null = 即時資料尚未更新
+    liveAvailable: !!analysis.liveAvailable,
+    notificationSent: analysis.risk !== 'normal',
+    trainNo:    selectedTrain.trainNo,
+    trainType:  selectedTrain.trainType,
+    departTime: selectedTrain.departTime
+  });
+
+  // 若有異常 → 新增通知
+  const todayStr = today.toISOString().slice(0,10);
+  const isToday = finalTripData.type === 'single' ? finalTripData.date === todayStr : true;
+
+  if (analysis.risk !== 'normal' && isToday) {
+    const notifs = getNotifications();
+    const riskTitle = analysis.risk === 'high' ? '🔴 高風險預警' : '🟡 延誤預警';
+    notifs.unshift({
+      id: 'notif-' + Date.now(),
+      tripId: saved.id,
+      type: analysis.risk,
+      title: riskTitle,
+      body: `${finalTripData.from} → ${finalTripData.to}｜${analysis.alert.reason}`,
+      time: new Date().toISOString(),
+      read: false
+    });
+    if (analysis.alert) {
+      notifs.unshift({
+        id: 'notif-ai-' + Date.now(),
+        tripId: saved.id,
+        type: 'ai',
+        title: '✨ AI 建議已產生',
+        body: `${finalTripData.from} → ${finalTripData.to}｜${analysis.alert.suggestions[0]?.action || '已產生替代方案'}`,
+        time: new Date(Date.now() - 5000).toISOString(),
+        read: false
+      });
+    }
+    saveNotifications(notifs);
+  }
+
+  // 顯示結果
+  document.getElementById('analysis-state').style.display = 'none';
+  document.getElementById('result-state').style.display = '';
+
+  const riskMap = {
+    normal:  { icon: '✅', title: '行程建立成功',
+               delayText: analysis.liveAvailable ? '🟢 目前正常運行' : '⏳ 即時資料尚未更新，將持續監控',
+               tag: null },
+    warning: { icon: '⚠️', title: '偵測到列車延誤', delayText: `延誤 ${analysis.delayMinutes} 分鐘`, tag: '⚠️ 已加入需要立即注意' },
+    high:    { icon: '🔴', title: '偵測到列車異常', delayText: `延誤 ${analysis.delayMinutes} 分鐘`, tag: '🔴 已加入需要立即注意' }
+  };
+  const rm = riskMap[analysis.risk];
+
+  const dispTrainType = selectedTrain.trainType;
+  const dispTrainNo   = selectedTrain.trainNo;
+  const dispDepTime   = selectedTrain.departTime;
+
+  let suggestionsHtml = '';
+  if (analysis.alert?.suggestions?.length > 0) {
+    suggestionsHtml = `
+      <div style="font-size:12px;font-weight:700;color:var(--color-text-sub);margin-bottom:6px;margin-top:4px">✨ AI 替代方案建議</div>
+      <div class="alt-suggestions">
+        ${analysis.alert.suggestions.map(s => `
+          <div class="alt-item">
+            <div class="alt-item-icon">${s.icon}</div>
+            <div>
+              <div class="alt-item-label">${s.label}</div>
+              <div class="alt-item-action">${s.action}</div>
+              <div class="alt-item-detail">${s.detail}</div>
+            </div>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  const tagHtml = rm.tag
+    ? `<div class="result-added-tag ${analysis.risk}">${rm.tag}</div>` : '';
+
+  document.getElementById('result-card-wrap').innerHTML = `
+    <div class="result-card ${analysis.risk}" style="text-align:center">
+      <div class="result-icon">${rm.icon}</div>
+      <div class="result-title">${rm.title}</div>
+      <div class="result-sub">
+        ${dispTrainType} ${dispTrainNo} 次　${finalTripData.from} → ${finalTripData.to}<br>
+        出發時間 ${dispDepTime}
+      </div>
+      <div class="result-delay">${rm.delayText}</div>
+      ${tagHtml}
+      ${suggestionsHtml}
+    </div>`;
+});
+</script>
+</body>
+</html>

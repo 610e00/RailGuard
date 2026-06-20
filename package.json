@@ -1,0 +1,12 @@
+{
+  "name": "railguard-api",
+  "version": "1.0.0",
+  "description": "RailGuard AI - TDX Proxy + LINE Bot 後端 API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

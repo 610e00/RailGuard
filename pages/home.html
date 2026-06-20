@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>首頁 — RailGuard AI</title>
+  <link rel="stylesheet" href="../css/main.css">
+</head>
+<body class="app-layout">
+
+<script src="../js/storage.js"></script>
+<script src="../js/nav.js"></script>
+<script>
+  requireAuth();
+  renderNav('home');
+</script>
+
+<main class="page-container">
+  <div class="page-header">
+    <h1>今日監控概況</h1>
+    <p id="today-date"></p>
+  </div>
+
+  <!-- Stats -->
+  <div class="stat-grid" id="stat-grid"></div>
+
+  <!-- Attention: 僅顯示今日且風險為 warning 或 high -->
+  <div class="section-title" id="attention-title">⚠️ 需要立即注意</div>
+  <div id="attention-cards"></div>
+
+  <!-- Trip Summary -->
+  <div class="section-title">
+    我的行程摘要
+    <a href="trips.html">查看全部 →</a>
+  </div>
+  <div id="trip-summary"></div>
+</main>
+
+<script>
+const today = new Date();
+const todayStr = today.toISOString().slice(0, 10);
+document.getElementById('today-date').textContent =
+  `${today.getFullYear()} 年 ${today.getMonth()+1} 月 ${today.getDate()} 日`;
+
+function isTodayTrip(t) {
+  if (t.type === 'single') {
+    return t.date === todayStr;
+  }
+  if (t.type === 'recurring') {
+    const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const todayDay = dayNames[today.getDay()];
+    return Array.isArray(t.days) && t.days.includes(todayDay);
+  }
+  return false;
+}
+
+function render() {
+  const trips = getTrips();
+
+  // Stats
+  const highCount = trips.filter(t => t.risk === 'high').length;
+  const warnCount = trips.filter(t => t.risk === 'warning').length;
+  const alertCount = highCount + warnCount;
+  document.getElementById('stat-grid').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-value">${trips.length}</div>
+      <div class="stat-label">監控中行程</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" style="color:${alertCount>0?'var(--color-risk-high)':'var(--color-risk-ok)'}">${alertCount}</div>
+      <div class="stat-label">今日預警數量</div>
+    </div>`;
+
+  // Attention：僅今日 + 風險為 high/warning
+  const todayAlertTrips = trips.filter(t =>
+    isTodayTrip(t) && (t.risk === 'high' || t.risk === 'warning')
+  );
+  const attentionEl = document.getElementById('attention-cards');
+
+  if (todayAlertTrips.length > 0) {
+    attentionEl.innerHTML = todayAlertTrips.map(t => {
+      const reasonText = t.alert ? t.alert.reason : '';
+      return `
+        <div class="home-alert-card ${riskClass(t.risk)} mb-md">
+          <div class="alert-header">
+            <span class="badge ${riskBadgeClass(t.risk)}">${riskLabel(t.risk)}</span>
+            ${t.notificationSent ? '<span style="font-size:12px;color:var(--color-risk-ok)">✓ 已通知</span>' : ''}
+          </div>
+          <div class="alert-route">${t.from} → ${t.to}</div>
+          <div class="alert-desc">${reasonText}</div>
+          ${t.alert ? '<div class="ai-tag">✨ AI 已產生替代路線建議</div>' : ''}
+          <button class="btn btn-sm" style="background:rgba(255,255,255,0.9);color:var(--color-text-main)"
+            onclick="window.location.href='trips.html?detail=${t.id}'">查看詳情</button>
+        </div>`;
+    }).join('');
+  } else {
+    attentionEl.innerHTML = `
+      <div class="card mb-md" style="display:flex;align-items:center;gap:12px;padding:var(--space-md) var(--space-lg);">
+        <span style="font-size:24px">✅</span>
+        <div>
+          <div style="font-weight:700;color:var(--color-text-main)">今日無異常行程</div>
+          <div style="font-size:13px;color:var(--color-text-sub)">系統持續監控中</div>
+        </div>
+      </div>`;
+  }
+
+  // Trip summary
+  const order = { high: 0, warning: 1, normal: 2 };
+  const sorted = [...trips].sort((a, b) => {
+    const diff = order[a.risk] - order[b.risk];
+    if (diff !== 0) return diff;
+    // 新增行程（id 包含時間戳）排前面
+    const aTs = parseInt((a.id || '').replace('trip-', '')) || 0;
+    const bTs = parseInt((b.id || '').replace('trip-', '')) || 0;
+    if (aTs && bTs && aTs !== bTs) return bTs - aTs; // 越新越前
+    const aDate = a.type === 'single' ? (a.date || '') : '';
+    const bDate = b.type === 'single' ? (b.date || '') : '';
+    if (aDate !== bDate) return aDate.localeCompare(bDate);
+    return (a.time || '').localeCompare(b.time || '');
+  });
+
+  const summaryEl = document.getElementById('trip-summary');
+  if (sorted.length === 0) {
+    summaryEl.innerHTML = `<div class="card"><div class="empty-state"><div class="empty-icon">🚂</div><h3>尚無行程</h3><p>點擊「新增行程」開始建立您的行程監控</p><button class="btn btn-primary" onclick="window.location.href='add-trip.html'">＋ 新增行程</button></div></div>`;
+  } else {
+    summaryEl.innerHTML = sorted.slice(0, 5).map(t => `
+      <div class="trip-card mb-md">
+        <div class="trip-card-accent ${riskClass(t.risk)}"></div>
+        <div class="trip-card-inner">
+          <div class="trip-route">
+            ${t.from} <span class="route-arrow">→</span> ${t.to}
+            <span class="badge ${riskBadgeClass(t.risk)} ml-auto" style="margin-left:auto">${riskLabel(t.risk)}</span>
+          </div>
+          <div class="trip-meta">
+            <span>🕐 ${t.time}</span>
+            <span>${t.type==='recurring' ? formatDays(t.days) : formatDate(t.date)}</span>
+            ${t.trainNo ? `<span>🚂 ${t.trainType || ''} ${t.trainNo} 次</span>` : ''}
+            ${t.note ? `<span>📌 ${t.note}</span>` : ''}
+          </div>
+          ${t.risk !== 'normal' && t.alert ? `
+            <div class="trip-alert-snippet ${riskClass(t.risk)}">${t.alert.reason}</div>
+          ` : ''}
+        </div>
+      </div>`).join('');
+  }
+}
+
+render();
+
+// 即時監控（由 nav.js 的 startLiveMonitor() 全站共用）更新行程資料時，重新渲染首頁
+document.addEventListener('railguard:trips-updated', render);
+</script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登入 — RailGuard AI</title>
+  <link rel="stylesheet" href="../css/main.css">
+  <style>
+    .error-msg {
+      background: var(--color-risk-high-bg);
+      border: 1px solid var(--color-risk-high-border);
+      color: var(--color-risk-high);
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      font-size: 14px;
+      margin-bottom: var(--space-md);
+      display: none;
+    }
+    .error-msg.show { display: block; }
+  </style>
+</head>
+<body>
+<div class="login-page">
+  <div class="login-box">
+    <div class="login-brand">
+      <div class="login-brand-logo">R</div>
+      <h1>Rail<span>Guard</span> AI</h1>
+      <p>智慧鐵道主動預警平台</p>
+    </div>
+
+    <div id="error-msg" class="error-msg">帳號或密碼錯誤，請再試一次</div>
+
+    <div class="form-group">
+      <label class="form-label" for="username">帳號</label>
+      <input class="form-control" type="text" id="username" placeholder="請輸入帳號" autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="password">密碼</label>
+      <input class="form-control" type="password" id="password" placeholder="請輸入密碼" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary btn-full btn-lg" id="login-btn" style="margin-top:4px">登入</button>
+
+    <div class="login-divider"><span>或</span></div>
+
+    <button class="quick-login-btn" id="quick-login-btn">【王小明快速登入】</button>
+
+    <p style="text-align:center;font-size:12px;color:var(--color-text-hint);margin-top:var(--space-lg)">
+      © 2026 RailGuard AI · 版本 2.0
+    </p>
+  </div>
+</div>
+
+<script src="../js/storage.js"></script>
+<script>
+  // Already logged in? Redirect
+  if (isLoggedIn()) window.location.href = 'home.html';
+
+  const loginBtn   = document.getElementById('login-btn');
+  const quickBtn   = document.getElementById('quick-login-btn');
+  const errorMsg   = document.getElementById('error-msg');
+  const usernameEl = document.getElementById('username');
+  const passwordEl = document.getElementById('password');
+
+  function doLogin(fast) {
+    if (!fast) {
+      const u = usernameEl.value.trim();
+      const p = passwordEl.value.trim();
+      if (u !== 'admin' || p !== '1234') {
+        errorMsg.classList.add('show');
+        return;
+      }
+    }
+    errorMsg.classList.remove('show');
+    login();
+    window.location.href = 'home.html';
+  }
+
+  loginBtn.addEventListener('click', () => doLogin(false));
+  quickBtn.addEventListener('click', () => doLogin(true));
+
+  [usernameEl, passwordEl].forEach(el => {
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(false); });
+  });
+</script>
+</body>
+</html>

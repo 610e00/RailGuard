@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>設定 — RailGuard AI</title>
+  <link rel="stylesheet" href="../css/main.css">
+</head>
+<body class="app-layout">
+
+<script src="../js/storage.js"></script>
+<script src="../js/nav.js"></script>
+<script>requireAuth(); renderNav('settings');</script>
+
+<main class="page-container">
+  <div class="page-header">
+    <h1>設定</h1>
+    <p>個人化您的 RailGuard AI 體驗</p>
+  </div>
+
+  <!-- Profile -->
+  <div class="settings-section">
+    <div class="settings-section-title">個人資料</div>
+    <div class="settings-row">
+      <div class="row-info"><div class="row-label">姓名</div></div>
+      <div style="font-size:15px;font-weight:600;color:var(--color-text-main)">王小明</div>
+    </div>
+    <div class="settings-row">
+      <div class="row-info"><div class="row-label">帳號</div></div>
+      <div style="font-size:14px;color:var(--color-text-sub)">admin</div>
+    </div>
+    <div class="settings-row">
+      <div class="row-info"><div class="row-label">會員方案</div></div>
+      <span class="badge badge-ok">標準版</span>
+    </div>
+  </div>
+
+  <!-- Notifications -->
+  <div class="settings-section">
+    <div class="settings-section-title">通知設定</div>
+    <div class="settings-row">
+      <div class="row-info">
+        <div class="row-label">推播通知</div>
+        <div class="row-desc">接收即時預警推播</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="s-push" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="settings-row">
+      <div class="row-info">
+        <div class="row-label">電子郵件通知</div>
+        <div class="row-desc">每日行程摘要報告</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="s-email">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="settings-row">
+      <div class="row-info">
+        <div class="row-label">簡訊通知</div>
+        <div class="row-desc">高風險事件即時簡訊</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="s-sms">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="settings-row">
+      <div class="row-info">
+        <div class="row-label">預警提前時間</div>
+        <div class="row-desc">出發前多久發送預警</div>
+      </div>
+      <select class="form-control" id="s-advance" style="width:auto;min-width:100px">
+        <option value="15">15 分鐘</option>
+        <option value="30" selected>30 分鐘</option>
+        <option value="60">1 小時</option>
+        <option value="120">2 小時</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Preferences -->
+  <div class="settings-section">
+    <div class="settings-section-title">偏好設定</div>
+    <div class="settings-row">
+      <div class="row-info"><div class="row-label">顯示語言</div></div>
+      <select class="form-control" id="s-lang" style="width:auto;min-width:100px">
+        <option value="zh-TW" selected>繁體中文</option>
+        <option value="en">English</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- About -->
+  <div class="settings-section">
+    <div class="settings-section-title">關於</div>
+    <div class="settings-row">
+      <div class="row-info"><div class="row-label">版本</div></div>
+      <div style="font-size:14px;color:var(--color-text-sub)">3.0.0</div>
+    </div>
+    <div class="settings-row">
+      <div class="row-info"><div class="row-label">開發單位</div></div>
+      <div style="font-size:14px;color:var(--color-text-sub)">RailGuard AI Team</div>
+    </div>
+  </div>
+
+  <!-- Data -->
+  <div class="settings-section">
+    <div class="settings-section-title">資料管理</div>
+    <div class="settings-row">
+      <div class="row-info">
+        <div class="row-label">重設資料</div>
+        <div class="row-desc">清除所有行程與通知紀錄，設定不受影響</div>
+      </div>
+      <button class="btn btn-danger btn-sm" id="reset-data-btn">重設資料</button>
+    </div>
+  </div>
+
+  <!-- Logout -->
+  <button class="btn btn-danger btn-full btn-lg" id="logout-btn-settings" style="margin-top:var(--space-sm)">
+    🚪 登出
+  </button>
+</main>
+
+<script>
+const s = getSettings();
+document.getElementById('s-push').checked   = s.pushNotif;
+document.getElementById('s-email').checked  = s.emailNotif;
+document.getElementById('s-sms').checked    = s.smsNotif;
+document.getElementById('s-advance').value  = s.alertAdvance;
+document.getElementById('s-lang').value     = s.language;
+
+function saveAll() {
+  saveSettings({
+    pushNotif:    document.getElementById('s-push').checked,
+    emailNotif:   document.getElementById('s-email').checked,
+    smsNotif:     document.getElementById('s-sms').checked,
+    alertAdvance: document.getElementById('s-advance').value,
+    language:     document.getElementById('s-lang').value
+  });
+  showToast('✅ 設定已儲存');
+}
+
+['s-push','s-email','s-sms'].forEach(id => {
+  document.getElementById(id).addEventListener('change', saveAll);
+});
+['s-advance','s-lang'].forEach(id => {
+  document.getElementById(id).addEventListener('change', saveAll);
+});
+
+document.getElementById('reset-data-btn').addEventListener('click', () => {
+  showConfirm('確定要清除所有行程與通知嗎？此操作無法復原。', () => {
+    resetToDefaults();
+    showToast('✅ 資料已重設', 'success');
+  });
+});
+
+document.getElementById('logout-btn-settings').addEventListener('click', logout);
+</script>
+</body>
+</html>

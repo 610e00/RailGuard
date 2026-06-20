@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TDX Debug — RailGuard AI</title>
+  <link rel="stylesheet" href="../css/main.css">
+  <style>
+    body { padding: 20px; font-family: monospace; }
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: flex-end; }
+    .controls label { font-size: 12px; color: #666; }
+    .controls input, .controls select { padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+    .btn-sm { padding: 7px 14px; font-size: 13px; border: none; border-radius: 6px; cursor: pointer; background: #2563EB; color: #fff; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow: auto; font-size: 12px; max-height: 70vh; white-space: pre-wrap; word-break: break-all; }
+    .summary { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 12px; margin-bottom: 12px; font-size: 13px; }
+    .summary table { border-collapse: collapse; width: 100%; }
+    .summary td, .summary th { padding: 4px 10px; border: 1px solid #ddd; text-align: left; }
+    .summary th { background: #e0f2fe; }
+    h2 { font-size: 15px; margin: 16px 0 8px; }
+  </style>
+</head>
+<body>
+<h1 style="font-size:18px;margin-bottom:16px">🔧 TDX API Debug 工具</h1>
+<p style="font-size:12px;color:#666;margin-bottom:16px">直接查看 TDX 原始資料，確認 schema 結構與班次時間</p>
+
+<div class="controls">
+  <div>
+    <label>出發站 ID</label><br>
+    <select id="d-from">
+      <option value="1000">台北 (1000)</option>
+      <option value="1010">板橋 (1010)</option>
+      <option value="1110">桃園 (1110)</option>
+      <option value="1120">中壢 (1120)</option>
+      <option value="0900">南港 (0900)</option>
+      <option value="1220">新竹 (1220)</option>
+      <option value="2200">台中 (2200)</option>
+    </select>
+  </div>
+  <div>
+    <label>目的站 ID</label><br>
+    <select id="d-to">
+      <option value="1120">中壢 (1120)</option>
+      <option value="1000">台北 (1000)</option>
+      <option value="1010">板橋 (1010)</option>
+      <option value="1110">桃園 (1110)</option>
+      <option value="1220">新竹 (1220)</option>
+      <option value="2200">台中 (2200)</option>
+    </select>
+  </div>
+  <div>
+    <label>日期</label><br>
+    <input type="date" id="d-date">
+  </div>
+  <div>
+    <label>筆數</label><br>
+    <input type="number" id="d-top" value="5" min="1" max="20" style="width:60px">
+  </div>
+  <button class="btn-sm" onclick="fetchTimetable()">查詢班表</button>
+  <button class="btn-sm" style="background:#059669" onclick="fetchLiveboard()">即時動態</button>
+</div>
+
+<div id="summary-area"></div>
+<pre id="output">點擊查詢後，原始 JSON 將顯示於此...</pre>
+
+<script>
+document.getElementById('d-date').value = new Date().toISOString().slice(0,10);
+
+async function fetchTimetable() {
+  const from = document.getElementById('d-from').value;
+  const to   = document.getElementById('d-to').value;
+  const date = document.getElementById('d-date').value;
+  const top  = document.getElementById('d-top').value;
+  document.getElementById('output').textContent = '查詢中...';
+  document.getElementById('summary-area').innerHTML = '';
+
+  try {
+    const resp = await fetch(`http://localhost:3000/api/debug/timetable?from=${from}&to=${to}&date=${date}&top=${top}`);
+    const data = await resp.json();
+
+    // 摘要分析
+    const trains = data.TrainTimetables || (Array.isArray(data) ? data : []);
+    let summaryHtml = `<div class="summary"><b>共 ${trains.length} 筆班次</b><br><br>`;
+    if (trains.length > 0) {
+      const t0 = trains[0];
+      summaryHtml += `<b>第一筆 schema 分析：</b><br>`;
+      summaryHtml += `外層 keys: ${Object.keys(t0).join(', ')}<br>`;
+      const ti = t0.TrainInfo || {};
+      summaryHtml += `TrainInfo keys: ${Object.keys(ti).join(', ')}<br>`;
+      summaryHtml += `TrainTypeName 型別: ${typeof ti.TrainTypeName} = ${JSON.stringify(ti.TrainTypeName)}<br>`;
+      const stops = t0.StopTimes || [];
+      if (stops[0]) summaryHtml += `StopTimes[0] keys: ${Object.keys(stops[0]).join(', ')}<br>`;
+
+      summaryHtml += `<br><table><tr><th>車次</th><th>車種</th><th>出發時間</th><th>到達時間</th></tr>`;
+      trains.forEach(t => {
+        const ti2 = t.TrainInfo || t;
+        const stops2 = t.StopTimes || [];
+        const dep = stops2.find(s => s.StationID == from || s.StationID == from.replace(/^0+/,'').padStart(4,'0'));
+        const arr = stops2.find(s => s.StationID == to   || s.StationID == to.replace(/^0+/,'').padStart(4,'0'));
+        const ttn = ti2.TrainTypeName;
+        const typeName = typeof ttn === 'string' ? ttn : (ttn?.Zh_tw || ti2.TrainTypeCode || '?');
+        summaryHtml += `<tr>
+          <td>${ti2.TrainNo || t.TrainNo || '?'}</td>
+          <td>${typeName}</td>
+          <td>${dep?.DepartureTime || dep?.ArrivalTime || '—'}</td>
+          <td>${arr?.ArrivalTime || '—'}</td>
+        </tr>`;
+      });
+      summaryHtml += `</table>`;
+    }
+    summaryHtml += `</div>`;
+    document.getElementById('summary-area').innerHTML = summaryHtml;
+    document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+  } catch(e) {
+    document.getElementById('output').textContent = '錯誤：' + e.message + '\n\n請確認 server.js 已啟動（node server.js）';
+  }
+}
+
+async function fetchLiveboard() {
+  const from = document.getElementById('d-from').value;
+  const top  = document.getElementById('d-top').value;
+  document.getElementById('output').textContent = '查詢中...';
+  document.getElementById('summary-area').innerHTML = '';
+
+  try {
+    const resp = await fetch(`http://localhost:3000/api/debug/liveboard?station=${from}&top=${top}`);
+    const data = await resp.json();
+    const boards = data.StationLiveBoards || data.TrainLiveBoards || (Array.isArray(data) ? data : []);
+    let summaryHtml = `<div class="summary"><b>即時動態：共 ${boards.length} 筆</b><br>`;
+    if (boards.length > 0) {
+      summaryHtml += `<br>keys: ${Object.keys(boards[0]).join(', ')}<br>`;
+      summaryHtml += `<table><tr><th>車次</th><th>延誤(DelayTime)</th><th>其他delay欄位</th></tr>`;
+      boards.forEach(b => {
+        const others = Object.entries(b).filter(([k]) => k.toLowerCase().includes('delay') && k !== 'DelayTime').map(([k,v])=>`${k}=${v}`).join(', ');
+        summaryHtml += `<tr><td>${b.TrainNo}</td><td>${b.DelayTime ?? '無此欄'}</td><td>${others||'—'}</td></tr>`;
+      });
+      summaryHtml += `</table>`;
+    }
+    summaryHtml += `</div>`;
+    document.getElementById('summary-area').innerHTML = summaryHtml;
+    document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+  } catch(e) {
+    document.getElementById('output').textContent = '錯誤：' + e.message;
+  }
+}
+</script>
+</body>
+</html>

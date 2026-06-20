@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>通知中心 — RailGuard AI</title>
+  <link rel="stylesheet" href="../css/main.css">
+</head>
+<body class="app-layout">
+
+<script src="../js/storage.js"></script>
+<script src="../js/nav.js"></script>
+<script>requireAuth(); renderNav('notifications');</script>
+
+<main class="page-container">
+  <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:var(--space-sm)">
+    <div>
+      <h1>通知中心</h1>
+      <p>系統主動預警紀錄</p>
+    </div>
+    <button class="btn btn-secondary btn-sm" id="mark-all-btn">全部已讀</button>
+  </div>
+
+  <div id="notif-list"></div>
+</main>
+
+<script>
+// 排序：純依時間由新到舊，不區分已讀/未讀
+function sortNotifs(notifs) {
+  return [...notifs].sort((a, b) => new Date(b.time) - new Date(a.time));
+}
+
+function render() {
+  const all = getNotifications();
+  const sorted = sortNotifs(all);
+  const el = document.getElementById('notif-list');
+
+  if (sorted.length === 0) {
+    el.innerHTML = `<div class="card"><div class="empty-state">
+      <div class="empty-icon">🔔</div>
+      <h3>沒有通知</h3>
+      <p>所有預警通知將顯示在此處</p>
+    </div></div>`;
+    return;
+  }
+
+  el.innerHTML = sorted.map(n => `
+    <div class="notif-list-item ${n.read?'read':'unread'}" data-id="${n.id}">
+      <div class="notif-list-indicator ${n.read?'':'unread-dot'}"></div>
+      <div class="notif-list-body">
+        <div class="notif-list-title">${n.title}</div>
+        <div class="notif-list-text">${n.body}</div>
+        <div class="notif-list-meta">
+          <span class="notif-list-time">${formatTime(n.time)}</span>
+        </div>
+      </div>
+    </div>`).join('');
+
+  el.querySelectorAll('.notif-list-item').forEach(item => {
+    item.addEventListener('click', () => {
+      markNotifRead(item.dataset.id);
+      // 立即移除藍色圓點
+      item.querySelector('.notif-list-indicator').classList.remove('unread-dot');
+      item.classList.remove('unread');
+      item.classList.add('read');
+      // 更新底部 badge
+      const badge = document.querySelector('.bottom-nav .notif-badge');
+      const count = getUnreadCount();
+      if (badge) {
+        if (count > 0) badge.textContent = count;
+        else badge.remove();
+      }
+    });
+  });
+
+  document.getElementById('mark-all-btn').disabled = all.filter(n => !n.read).length === 0;
+}
+
+document.getElementById('mark-all-btn').addEventListener('click', () => {
+  markAllRead();
+  render();
+  showToast('✅ 已全部標為已讀', 'success');
+  const badge = document.querySelector('.bottom-nav .notif-badge');
+  if (badge) badge.remove();
+});
+
+render();
+</script>
+</body>
+</html>

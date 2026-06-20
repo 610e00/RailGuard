@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的行程 — RailGuard AI</title>
+  <link rel="stylesheet" href="../css/main.css">
+  <style>
+    .trip-list { display: grid; gap: var(--space-md); }
+    .detail-badge-row { display:flex; align-items:center; gap:var(--space-sm); margin-bottom:var(--space-md); }
+  </style>
+</head>
+<body class="app-layout">
+
+<script src="../js/storage.js"></script>
+<script src="../js/nav.js"></script>
+<script>requireAuth(); renderNav('trips');</script>
+
+<main class="page-container">
+  <div class="page-header">
+    <h1>我的行程</h1>
+    <p>管理並追蹤所有行程的即時狀態</p>
+  </div>
+
+  <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-lg);flex-wrap:wrap">
+    <div class="tab-filter" style="flex:1;min-width:220px" id="risk-filter">
+      <button class="active" data-risk="all">全部</button>
+      <button data-risk="high">🔴 高風險</button>
+      <button data-risk="warning">🟡 預警</button>
+      <button data-risk="normal">🟢 正常</button>
+    </div>
+    <button class="btn btn-primary" onclick="window.location.href='add-trip.html'">＋ 新增行程</button>
+  </div>
+
+  <div id="trip-list" class="trip-list"></div>
+</main>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="detail-modal">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <h2 id="detail-title">行程詳情</h2>
+      <button class="modal-close" id="detail-close">✕</button>
+    </div>
+    <div class="modal-body" id="detail-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="detail-edit-btn">✏️ 編輯</button>
+      <button class="btn btn-danger" id="detail-delete-btn">🗑️ 刪除</button>
+      <button class="btn btn-primary" id="detail-close-btn">關閉</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal" style="max-width:540px">
+    <div class="modal-header">
+      <h2>編輯行程</h2>
+      <button class="modal-close" id="edit-close">✕</button>
+    </div>
+    <div class="modal-body" id="edit-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="edit-cancel">取消</button>
+      <button class="btn btn-primary" id="edit-save">儲存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STATIONS = ["南港","台北","板橋","桃園","中壢","新竹","苗栗","台中","彰化","斗六","嘉義","台南","左營"];
+const DAYS_INFO = [
+  {key:'Monday',   label:'一'},
+  {key:'Tuesday',  label:'二'},
+  {key:'Wednesday',label:'三'},
+  {key:'Thursday', label:'四'},
+  {key:'Friday',   label:'五'},
+  {key:'Saturday', label:'六'},
+  {key:'Sunday',   label:'日'}
+];
+
+let currentFilter = 'all';
+let currentDetailId = null;
+let currentEditId = null;
+
+function stationOptions(selected='') {
+  return STATIONS.map(s => `<option value="${s}" ${s===selected?'selected':''}>${s}</option>`).join('');
+}
+
+// 判斷此行程是否為「今天」要監控的行程（單次=日期相符；固定=今天的星期在清單內）
+function isTodayTrip(t) {
+  const todayStr = twTodayStr();
+  if (t.type === 'single')    return t.date === todayStr;
+  if (t.type === 'recurring') return Array.isArray(t.days) && t.days.includes(twDayName(todayStr));
+  return false;
+}
+// nextDepartureMs()、countdownText() 已移至 js/storage.js 共用（修正時區計算誤差）
+
+// 顯示行程的即時延誤狀態（灰色「尚未更新」/ 綠色「準點」/ 橘色或紅色「誤點」）
+// 與「新增行程」步驟2的車次選擇卡一致，避免兩處狀態不一致
+function liveStatusBadge(t) {
+  if (!t.trainNo || !isTodayTrip(t)) return '';
+  if (!t.liveAvailable || t.delayMins === null || t.delayMins === undefined) {
+    return `<span style="color:#9CA3AF">⏳ 尚未更新</span>`;
+  }
+  if (t.delayMins === 0) {
+    return `<span style="color:#059669">🟢 準點</span>`;
+  }
+  const color = t.delayMins >= 16 ? '#DC2626' : '#D97706';
+  return `<span style="color:${color}">⚠️ 誤點 ${t.delayMins} 分</span>`;
+}
+
+function renderTrips() {
+  const trips = getTrips();
+  // 依「下一次發車時間」排序，最近即將出發者排最前面
+  let filtered = [...trips].sort((a, b) => nextDepartureMs(a) - nextDepartureMs(b));
+  if (currentFilter !== 'all') filtered = filtered.filter(t => t.risk === currentFilter);
+
+  const el = document.getElementById('trip-list');
+  if (filtered.length === 0) {
+    el.innerHTML = `<div class="card"><div class="empty-state">
+      <div class="empty-icon">🚂</div>
+      <h3>沒有${currentFilter==='all'?'':'符合條件的'}行程</h3>
+      <p>點擊「新增行程」開始建立您的行程監控</p>
+      <button class="btn btn-primary" onclick="window.location.href='add-trip.html'">＋ 新增行程</button>
+    </div></div>`;
+    return;
+  }
+
+  el.innerHTML = filtered.map(t => {
+    const isRecurring = t.type === 'recurring';
+    const countdown = countdownText(nextDepartureMs(t));
+    return `
+    <div class="trip-card" id="card-${t.id}">
+      <div class="trip-card-accent ${riskClass(t.risk)}"></div>
+      <div class="trip-card-inner">
+        <div class="trip-route">
+          <span>${t.from}</span>
+          <span class="route-arrow">→</span>
+          <span>${t.to}</span>
+          <span class="badge ${riskBadgeClass(t.risk)}" style="margin-left:auto">${riskLabel(t.risk)}</span>
+        </div>
+        <div class="trip-meta">
+          <span>🕐 ${t.time}</span>
+          <span>${isRecurring ? formatDays(t.days) : formatDate(t.date)}</span>
+          <span>${isRecurring?'🔁 固定行程':'📅 單次行程'}</span>
+          ${t.trainNo ? `<span>🚂 ${t.trainType || ''} ${t.trainNo} 次</span>` : ''}
+          ${liveStatusBadge(t)}
+          ${countdown ? `<span>⏳ ${countdown}</span>` : ''}
+        </div>
+        ${t.note ? `<div class="trip-note">📌 ${t.note}</div>` : ''}
+        ${t.risk !== 'normal' && t.alert ? `<div class="trip-alert-snippet ${riskClass(t.risk)}">${t.alert.reason}</div>` : ''}
+        <div class="trip-status-row">
+          <div></div>
+          ${t.notificationSent ? `<span class="trip-notif-tag sent">✓ 已通知</span>` : ''}
+        </div>
+        <div class="trip-actions">
+          <button class="btn btn-outline btn-sm" onclick="openDetail('${t.id}')">🔍 查看</button>
+          <button class="btn btn-secondary btn-sm" onclick="openEdit('${t.id}')">✏️ 編輯</button>
+          ${isRecurring ? '' : `<button class="btn btn-danger btn-sm" onclick="doDelete('${t.id}')">🗑️ 刪除</button>`}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Filter
+document.getElementById('risk-filter').addEventListener('click', e => {
+  const btn = e.target.closest('[data-risk]');
+  if (!btn) return;
+  currentFilter = btn.dataset.risk;
+  document.querySelectorAll('#risk-filter button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTrips();
+});
+
+// Detail Modal
+function openDetail(id) {
+  const t = getTripById(id);
+  if (!t) return;
+  currentDetailId = id;
+  document.getElementById('detail-title').textContent = `${t.from} → ${t.to}`;
+
+  let alertHtml = '';
+  if (t.risk !== 'normal' && t.alert) {
+    const sugHtml = t.alert.suggestions.map(s => `
+      <div class="suggestion-card ${s.type==='best'?'best':''}">
+        <div class="suggestion-label">${s.label}</div>
+        <div class="suggestion-icon">${s.icon}</div>
+        <div class="suggestion-action">${s.action}</div>
+        <div class="suggestion-detail">${s.detail}</div>
+      </div>`).join('');
+    alertHtml = `
+      <div class="alert-card ${riskClass(t.risk)} mb-md">
+        <div class="alert-title">⚠️ ${t.alert.title}</div>
+        <div class="alert-reason">${t.alert.reason}</div>
+      </div>
+      <div class="section-title" style="margin-bottom:var(--space-sm)">✨ AI 建議</div>
+      <div class="suggestion-grid">${sugHtml}</div>`;
+  }
+
+  document.getElementById('detail-body').innerHTML = `
+    <div class="detail-badge-row">
+      <span class="badge ${riskBadgeClass(t.risk)}">${riskLabel(t.risk)}</span>
+      ${t.notificationSent ? '<span style="font-size:13px;color:var(--color-risk-ok)">✓ 系統已通知</span>' : ''}
+    </div>
+    <div class="detail-info-grid mb-lg">
+      <div class="detail-info-item">
+        <div class="info-label">出發地</div>
+        <div class="info-value">${t.from}</div>
+      </div>
+      <div class="detail-info-item">
+        <div class="info-label">目的地</div>
+        <div class="info-value">${t.to}</div>
+      </div>
+      <div class="detail-info-item">
+        <div class="info-label">時間</div>
+        <div class="info-value">${t.time}</div>
+      </div>
+      <div class="detail-info-item">
+        <div class="info-label">${t.type==='recurring'?'星期':'日期'}</div>
+        <div class="info-value">${t.type==='recurring'?formatDays(t.days):formatDate(t.date)}</div>
+      </div>
+      <div class="detail-info-item">
+        <div class="info-label">行程類型</div>
+        <div class="info-value">${t.type==='recurring'?'🔁 固定行程':'📅 單次行程'}</div>
+      </div>
+      ${t.note ? `<div class="detail-info-item">
+        <div class="info-label">備註</div>
+        <div class="info-value">${t.note}</div>
+      </div>` : ''}
+    </div>
+    ${alertHtml}`;
+
+  document.getElementById('detail-delete-btn').style.display = (t.type === 'recurring') ? 'none' : '';
+
+  document.getElementById('detail-modal').classList.add('open');
+}
+
+document.getElementById('detail-close').onclick = () => document.getElementById('detail-modal').classList.remove('open');
+document.getElementById('detail-close-btn').onclick = () => document.getElementById('detail-modal').classList.remove('open');
+document.getElementById('detail-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('detail-modal')) document.getElementById('detail-modal').classList.remove('open');
+});
+
+document.getElementById('detail-edit-btn').onclick = () => {
+  document.getElementById('detail-modal').classList.remove('open');
+  openEdit(currentDetailId);
+};
+document.getElementById('detail-delete-btn').onclick = () => {
+  document.getElementById('detail-modal').classList.remove('open');
+  doDelete(currentDetailId);
+};
+
+// Edit Modal
+function openEdit(id) {
+  const t = getTripById(id);
+  if (!t) return;
+  currentEditId = id;
+  const isRecurring = t.type === 'recurring';
+
+  const daysHtml = DAYS_INFO.map(d => `
+    <input type="checkbox" class="day-checkbox" id="ed-${d.key}" value="${d.key}" ${t.days && t.days.includes(d.key)?'checked':''}>
+    <label class="day-label" for="ed-${d.key}">週${d.label}</label>`).join('');
+
+  document.getElementById('edit-body').innerHTML = `
+    <div class="form-group">
+      <label class="form-label">行程類型</label>
+      <div class="type-toggle">
+        <button type="button" id="et-single" class="${!isRecurring?'active':''}">📅 單次行程</button>
+        <button type="button" id="et-recurring" class="${isRecurring?'active':''}">🔁 固定行程</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">出發地</label>
+        <select class="form-control" id="e-from">${stationOptions(t.from)}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">目的地</label>
+        <select class="form-control" id="e-to">${stationOptions(t.to)}</select>
+      </div>
+    </div>
+    <div class="form-group" id="e-date-group" style="${isRecurring?'display:none':''}">
+      <label class="form-label">日期</label>
+      <input type="date" class="form-control" id="e-date" value="${t.date||''}">
+    </div>
+    <div class="form-group" id="e-days-group" style="${!isRecurring?'display:none':''}">
+      <label class="form-label">星期</label>
+      <div class="day-checkboxes">${daysHtml}</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">時間</label>
+      <input type="time" class="form-control" id="e-time" value="${t.time}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">備註（選填）</label>
+      <input type="text" class="form-control" id="e-note" value="${t.note||''}" placeholder="例：上班通勤、出差、旅遊">
+    </div>`;
+
+  // Type toggle logic
+  let editType = t.type;
+  document.getElementById('et-single').onclick = () => {
+    editType = 'single';
+    document.getElementById('et-single').classList.add('active');
+    document.getElementById('et-recurring').classList.remove('active');
+    document.getElementById('e-date-group').style.display = '';
+    document.getElementById('e-days-group').style.display = 'none';
+  };
+  document.getElementById('et-recurring').onclick = () => {
+    editType = 'recurring';
+    document.getElementById('et-recurring').classList.add('active');
+    document.getElementById('et-single').classList.remove('active');
+    document.getElementById('e-date-group').style.display = 'none';
+    document.getElementById('e-days-group').style.display = '';
+  };
+
+  document.getElementById('edit-save').onclick = () => {
+    const from = document.getElementById('e-from').value;
+    const to   = document.getElementById('e-to').value;
+    const time = document.getElementById('e-time').value;
+    const note = document.getElementById('e-note').value.trim();
+    if (from === to) { showToast('出發地與目的地不能相同', 'error'); return; }
+    if (!time) { showToast('請選擇時間', 'error'); return; }
+
+    const data = { from, to, time, note, type: editType };
+    if (editType === 'single') {
+      const date = document.getElementById('e-date').value;
+      if (!date) { showToast('請選擇日期', 'error'); return; }
+      data.date = date;
+      data.days = [];
+    } else {
+      const days = [...document.querySelectorAll('#e-days-group .day-checkbox:checked')].map(c => c.value);
+      if (days.length === 0) { showToast('請至少選擇一個星期', 'error'); return; }
+      data.days = days;
+      data.date = '';
+    }
+    updateTrip(currentEditId, data);
+    document.getElementById('edit-modal').classList.remove('open');
+    renderTrips();
+    showToast('✅ 行程已更新', 'success');
+  };
+
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+document.getElementById('edit-close').onclick = () => document.getElementById('edit-modal').classList.remove('open');
+document.getElementById('edit-cancel').onclick = () => document.getElementById('edit-modal').classList.remove('open');
+document.getElementById('edit-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('edit-modal')) document.getElementById('edit-modal').classList.remove('open');
+});
+
+function doDelete(id) {
+  const t = getTripById(id);
+  if (!t) return;
+  if (t.type === 'recurring') {
+    showToast('固定行程不可刪除', 'error');
+    return;
+  }
+  showConfirm(`確定要刪除「${t.from} → ${t.to}」這筆行程嗎？`, () => {
+    deleteTrip(id);
+    renderTrips();
+    showToast('✅ 行程已刪除', 'success');
+  });
+}
+
+// Handle URL param for direct detail open
+const params = new URLSearchParams(window.location.search);
+if (params.get('detail')) {
+  setTimeout(() => openDetail(params.get('detail')), 100);
+}
+
+renderTrips();
+
+// 即時監控（延誤輪詢、即時 toast 通知）由 nav.js 的 startLiveMonitor() 全站共用
+// 行程資料有變動時會收到此事件，重新渲染列表即可
+document.addEventListener('railguard:trips-updated', renderTrips);
+</script>
+</body>
+</html>

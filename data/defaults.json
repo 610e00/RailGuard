@@ -1,0 +1,116 @@
+{
+  "trips": [
+    {
+      "id": "trip-001",
+      "from": "中壢",
+      "to": "台北",
+      "type": "recurring",
+      "days": ["Monday","Tuesday","Wednesday","Thursday","Friday"],
+      "time": "07:30",
+      "note": "上班通勤",
+      "risk": "normal",
+      "notificationSent": false,
+      "alert": null
+    },
+    {
+      "id": "trip-002",
+      "from": "台北",
+      "to": "台中",
+      "type": "single",
+      "date": "2026-06-15",
+      "time": "14:00",
+      "note": "高鐵出差",
+      "risk": "warning",
+      "notificationSent": true,
+      "alert": {
+        "title": "列車延誤預警",
+        "reason": "列車延誤25分鐘，預計錯過轉乘班次，可能增加18分鐘旅程時間。",
+        "suggestions": [
+          {
+            "type": "best",
+            "label": "最佳方案",
+            "action": "改搭 14:30 高鐵",
+            "detail": "預估節省 18 分鐘",
+            "icon": "⚡"
+          },
+          {
+            "type": "alt",
+            "label": "替代方案",
+            "action": "改搭 15:00 自強號",
+            "detail": "預估抵達 16:45",
+            "icon": "🔄"
+          }
+        ]
+      }
+    },
+    {
+      "id": "trip-003",
+      "from": "南港",
+      "to": "台北大巨蛋",
+      "type": "single",
+      "date": "2026-06-20",
+      "time": "19:30",
+      "note": "周杰倫演唱會",
+      "risk": "high",
+      "notificationSent": true,
+      "alert": {
+        "title": "高風險預警",
+        "reason": "活動散場時人潮大量增加，捷運月台擁擠風險提高，建議預先規劃替代離場路線。",
+        "suggestions": [
+          {
+            "type": "best",
+            "label": "最佳方案",
+            "action": "活動結束後等待 30 分鐘再離場",
+            "detail": "可有效避開尖峰人潮",
+            "icon": "⚡"
+          },
+          {
+            "type": "alt",
+            "label": "替代方案",
+            "action": "改搭公車 205、212 路",
+            "detail": "可繞過捷運壅塞路段",
+            "icon": "🔄"
+          }
+        ]
+      }
+    }
+  ],
+  "notifications": [
+    {
+      "id": "notif-001",
+      "tripId": "trip-003",
+      "type": "high",
+      "title": "🔴 高風險預警",
+      "body": "南港 → 台北大巨蛋｜活動散場人潮增加，捷運月台擁擠風險提高",
+      "time": "2026-06-20T18:00:00",
+      "read": false
+    },
+    {
+      "id": "notif-002",
+      "tripId": "trip-002",
+      "type": "warning",
+      "title": "🟡 延誤預警",
+      "body": "台北 → 台中｜列車延誤 25 分鐘，AI 建議已產生",
+      "time": "2026-06-15T13:30:00",
+      "read": false
+    },
+    {
+      "id": "notif-003",
+      "tripId": "trip-003",
+      "type": "ai",
+      "title": "✨ AI 建議已產生",
+      "body": "南港 → 台北大巨蛋｜已為您規劃替代離場路線，請查看詳情",
+      "time": "2026-06-20T17:45:00",
+      "read": true
+    },
+    {
+      "id": "notif-004",
+      "tripId": "trip-002",
+      "type": "ai",
+      "title": "✨ AI 建議已產生",
+      "body": "台北 → 台中｜已找到最佳替代班次，預估節省 18 分鐘",
+      "time": "2026-06-15T13:00:00",
+      "read": true
+    }
+  ]
+}
