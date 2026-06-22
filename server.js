@@ -20,16 +20,18 @@ const DB_FILE = path.join(__dirname, 'db.json');
 
 function loadDB() {
   try {
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    if (!db.conversations) db.conversations = {}; // 向下相容：舊db.json補上這個欄位
+    return db;
   } catch(e) {
-    return { pending: {}, trips: [] };
+    return { pending: {}, trips: [], conversations: {} };
   }
 }
 function saveDB(db) {
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 }
 // 初始化 db.json（若不存在）
-if (!fs.existsSync(DB_FILE)) saveDB({ pending: {}, trips: [] });
+if (!fs.existsSync(DB_FILE)) saveDB({ pending: {}, trips: [], conversations: {} });
 
 let cachedToken = null;
 let tokenExpiry  = 0;
@@ -190,7 +192,7 @@ async function queryNearbyTrainsForLine(fromName, toName, targetTime, dateStr) {
 // ── CORS ──
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
@@ -301,6 +303,51 @@ const server = http.createServer(async (req, res) => {
       const userId = parsed.query.userId;
       const trips = userId ? db.trips.filter(t => t.userId === userId) : db.trips;
       return sendJSON(res, 200, { trips });
+    }
+
+    // ───────────────────────────────────────
+    // 【新】對話狀態管理 — 多輪對話的地基
+    // ───────────────────────────────────────
+
+    // 取得使用者目前對話狀態
+    // GET /api/conversation/:userId
+    // 若無進行中對話，回傳一個全新的空白狀態（不是404），方便n8n端不用額外判斷
+    if (req.method === 'GET' && pathname.startsWith('/api/conversation/')) {
+      const userId = pathname.split('/api/conversation/')[1];
+      const db = loadDB();
+      const conv = db.conversations[userId] || {
+        state: 'COLLECTING',
+        collected: { from: null, to: null, time: null, type: null, days: [], date: null },
+        candidates: null,
+        notifyThreshold: null,
+        updatedAt: null
+      };
+      return sendJSON(res, 200, conv);
+    }
+
+    // 更新（覆寫）使用者目前對話狀態
+    // POST /api/conversation/:userId  body: { state, collected, candidates, notifyThreshold }
+    if (req.method === 'POST' && pathname.startsWith('/api/conversation/')) {
+      const userId = pathname.split('/api/conversation/')[1];
+      const body = await readBody(req);
+      const db = loadDB();
+      db.conversations[userId] = {
+        ...(db.conversations[userId] || {}),
+        ...body,
+        updatedAt: new Date().toISOString()
+      };
+      saveDB(db);
+      return sendJSON(res, 200, { ok: true, conversation: db.conversations[userId] });
+    }
+
+    // 清除使用者對話狀態（完成或取消時呼叫）
+    // DELETE /api/conversation/:userId
+    if (req.method === 'DELETE' && pathname.startsWith('/api/conversation/')) {
+      const userId = pathname.split('/api/conversation/')[1];
+      const db = loadDB();
+      delete db.conversations[userId];
+      saveDB(db);
+      return sendJSON(res, 200, { ok: true });
     }
 
     // ───────────────────────────────────────
