@@ -337,6 +337,35 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ───────────────────────────────────────
+    // 【新】更新單筆行程（目前主要用於調整 notifyThreshold 誤點門檎）
+    // PATCH /api/trips/:id  body: { notifyThreshold: 10 }（可擴充其他可調欄位）
+    // ───────────────────────────────────────
+    if (req.method === 'PATCH' && pathname.startsWith('/api/trips/')) {
+      const tripId = pathname.split('/api/trips/')[1];
+      const body = await readBody(req);
+      const db = loadDB();
+      const idx = db.trips.findIndex(t => t.id === tripId);
+      if (idx === -1) return sendJSON(res, 404, { error: '找不到這筆行程' });
+      db.trips[idx] = { ...db.trips[idx], ...body, updatedAt: new Date().toISOString() };
+      saveDB(db);
+      return sendJSON(res, 200, { ok: true, trip: db.trips[idx] });
+    }
+
+    // ───────────────────────────────────────
+    // 【新】刪除單筆行程
+    // DELETE /api/trips/:id
+    // ───────────────────────────────────────
+    if (req.method === 'DELETE' && pathname.startsWith('/api/trips/')) {
+      const tripId = pathname.split('/api/trips/')[1];
+      const db = loadDB();
+      const before = db.trips.length;
+      db.trips = db.trips.filter(t => t.id !== tripId);
+      saveDB(db);
+      if (db.trips.length === before) return sendJSON(res, 404, { error: '找不到這筆行程' });
+      return sendJSON(res, 200, { ok: true });
+    }
+
+    // ───────────────────────────────────────
     // 【新】對話狀態管理 — 多輪對話的地基
     // ───────────────────────────────────────
 
