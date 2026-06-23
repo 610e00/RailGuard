@@ -150,9 +150,11 @@ async function fetchAllTrains(fromId, toId, dateStr) {
 }
 
 // ---- 依車次號查詢當天完整停靠站時刻表（給「已買票追蹤特定車次」功能用）----
+// 注意：改用已驗證可用的「全班表」端點 + 程式篩選，避免依賴未驗證的 TrainNo 端點格式
 async function fetchTrainByNo(trainNo, dateStr) {
   const token = await getToken();
-  const tdxUrl = `https://tdx.transportdata.tw/api/basic/v3/Rail/TRA/DailyTrainTimetable/TrainNo/${trainNo}/TrainDate/${dateStr}?$format=JSON`;
+  // 不指定 Direction，兩個方向都查，用 $filter 直接篩出指定車次，減少資料量
+  const tdxUrl = `https://tdx.transportdata.tw/api/basic/v3/Rail/TRA/DailyTrainTimetable/TrainDate/${dateStr}?$filter=TrainInfo/TrainNo eq '${trainNo}'&$format=JSON`;
   const result = await fetchTDX(tdxUrl, token);
   const data = JSON.parse(result.body);
   const list = data.TrainTimetables || [];
