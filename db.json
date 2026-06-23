@@ -1,5 +1,23 @@
 {
   "pending": {},
-  "trips": [],
+  "trips": [
+    {
+      "id": "trip-test-001",
+      "userId": "U0efa3078645f46e8ad89fe89aa832af6",
+      "from": "中壢",
+      "to": "彰化",
+      "time": "08:00",
+      "type": "recurring",
+      "days": [
+        "Tuesday",
+        "Friday"
+      ],
+      "date": null,
+      "trainNo": "103",
+      "trainType": "自強",
+      "notifyThreshold": 5,
+      "createdAt": "2026-06-23T08:00:00.000Z"
+    }
+  ],
   "conversations": {}
 }
