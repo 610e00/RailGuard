@@ -149,6 +149,34 @@ async function fetchAllTrains(fromId, toId, dateStr) {
   return results.sort((a, b) => a.depMins - b.depMins);
 }
 
+// ---- 依車次號查詢當天完整停靠站時刻表（給「已買票追蹤特定車次」功能用）----
+async function fetchTrainByNo(trainNo, dateStr) {
+  const token = await getToken();
+  const tdxUrl = `https://tdx.transportdata.tw/api/basic/v3/Rail/TRA/DailyTrainTimetable/TrainNo/${trainNo}/TrainDate/${dateStr}?$format=JSON`;
+  const result = await fetchTDX(tdxUrl, token);
+  const data = JSON.parse(result.body);
+  const list = data.TrainTimetables || [];
+  if (list.length === 0) return null;
+
+  const t  = list[0];
+  const ti = t.TrainInfo || {};
+  const stops = (t.StopTimes || []).map(s => ({
+    stationId: String(s.StationID),
+    stationName: s.StationName?.Zh_tw || '',
+    arrivalTime: toHHmm(s.ArrivalTime || s.DepartureTime || ''),
+    departureTime: toHHmm(s.DepartureTime || s.ArrivalTime || ''),
+    stopSequence: s.StopSequence
+  }));
+
+  return {
+    trainNo: String(ti.TrainNo || trainNo),
+    trainType: getTrainTypeName(ti),
+    startingStationName: ti.StartingStationName?.Zh_tw || '',
+    endingStationName: ti.EndingStationName?.Zh_tw || '',
+    stops
+  };
+}
+
 // ---- 查詢即時延誤 ----
 async function fetchTrainDelay(trainNo, fromStationId) {
   const token = await getToken();
@@ -348,6 +376,38 @@ const server = http.createServer(async (req, res) => {
       delete db.conversations[userId];
       saveDB(db);
       return sendJSON(res, 200, { ok: true });
+    }
+
+    // ───────────────────────────────────────
+    // 【新】查詢特定車次當天時刻表，並確認上車站是否為停靠站
+    // GET /api/line/train-info?trainNo=2007&date=2026-06-24&boardingStation=中壢
+    // ───────────────────────────────────────
+    if (req.method === 'GET' && pathname === '/api/line/train-info') {
+      const { trainNo, date, boardingStation } = parsed.query;
+      if (!trainNo) return sendJSON(res, 400, { error: '需要 trainNo 參數' });
+      const dateStr = date || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+
+      const train = await fetchTrainByNo(trainNo, dateStr);
+      if (!train) {
+        return sendJSON(res, 200, { found: false, message: `查不到${dateStr}的${trainNo}次列車，請確認車次號或日期是否正確。` });
+      }
+
+      let boardingStop = null;
+      if (boardingStation) {
+        const boardingId = TRA_STATION_MAP[boardingStation];
+        if (boardingId) {
+          boardingStop = train.stops.find(s => s.stationId === String(boardingId)) || null;
+        }
+      }
+
+      const validBoarding = !boardingStation || !!boardingStop;
+
+      return sendJSON(res, 200, {
+        found: true,
+        validBoarding,
+        train,
+        boardingStop
+      });
     }
 
     // ───────────────────────────────────────
