@@ -22,9 +22,10 @@ function loadDB() {
   try {
     const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
     if (!db.conversations) db.conversations = {}; // 向下相容：舊db.json補上這個欄位
+    if (!db.simulatedDelays) db.simulatedDelays = {}; // 向下相容：demo用模擬誤點
     return db;
   } catch(e) {
-    return { pending: {}, trips: [], conversations: {} };
+    return { pending: {}, trips: [], conversations: {}, simulatedDelays: {} };
   }
 }
 function saveDB(db) {
@@ -410,6 +411,58 @@ const server = http.createServer(async (req, res) => {
         train,
         boardingStop
       });
+    }
+
+    // ───────────────────────────────────────
+    // 【新】Demo用：手動模擬誤點（讓背景監控demo時100%可控觸發）
+    // POST /api/debug/simulate-delay  body: { trainNo, date, delayMins }
+    // delayMins 設為 null 代表清除模擬（恢復查詢真實誤點）
+    // ───────────────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/debug/simulate-delay') {
+      const body = await readBody(req);
+      const { trainNo, date, delayMins } = body;
+      if (!trainNo) return sendJSON(res, 400, { error: '需要 trainNo 參數' });
+      const dateStr = date || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+      const db = loadDB();
+      const key = `${trainNo}-${dateStr}`;
+      if (delayMins === null || delayMins === undefined) {
+        delete db.simulatedDelays[key];
+      } else {
+        db.simulatedDelays[key] = Number(delayMins);
+      }
+      saveDB(db);
+      return sendJSON(res, 200, { ok: true, key, delayMins: db.simulatedDelays[key] ?? null });
+    }
+
+    // 查看目前所有模擬誤點設定
+    // GET /api/debug/simulate-delay
+    if (req.method === 'GET' && pathname === '/api/debug/simulate-delay') {
+      const db = loadDB();
+      return sendJSON(res, 200, { simulatedDelays: db.simulatedDelays });
+    }
+
+    // ───────────────────────────────────────
+    // 【新】給背景監控用：查詢單一車次目前延誤分鐘數
+    // 優先回傳模擬誤點（demo用），否則查TDX真實即時動態
+    // GET /api/line/train-delay?trainNo=2007&date=2026-06-24&stationId=1100
+    // ───────────────────────────────────────
+    if (req.method === 'GET' && pathname === '/api/line/train-delay') {
+      const { trainNo, date, stationId } = parsed.query;
+      if (!trainNo) return sendJSON(res, 400, { error: '需要 trainNo 參數' });
+      const dateStr = date || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+      const db = loadDB();
+      const key = `${trainNo}-${dateStr}`;
+
+      if (db.simulatedDelays[key] !== undefined) {
+        return sendJSON(res, 200, { trainNo, delayMins: db.simulatedDelays[key], source: 'simulated' });
+      }
+
+      const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+      if (dateStr !== todayStr || !stationId) {
+        return sendJSON(res, 200, { trainNo, delayMins: null, source: 'unavailable' });
+      }
+      const delayMins = await fetchTrainDelay(trainNo, stationId);
+      return sendJSON(res, 200, { trainNo, delayMins, source: 'tdx_live' });
     }
 
     // ───────────────────────────────────────
