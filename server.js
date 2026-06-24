@@ -331,11 +331,37 @@ const server = http.createServer(async (req, res) => {
     // ───────────────────────────────────────
     // 【新】使用者選定車次後，正式寫入監控行程
     // POST /api/trips  body: { userId, from, to, time, type, days, date, trainNo, trainType }
+    // 會先檢查是否已有重複監控（依mode類型採不同判斷依據），重複則回傳 duplicate:true，不寫入
     // ───────────────────────────────────────
     if (req.method === 'POST' && pathname === '/api/trips') {
       const body = await readBody(req);
       if (!body.userId) return sendJSON(res, 400, { error: '需要 userId' });
       const db = loadDB();
+
+      // 重複檢查：同一使用者，依mode類型用不同欄位組合判斷是否已存在相同監控
+      const isDuplicate = db.trips.some(t => {
+        if (t.userId !== body.userId) return false;
+        if (body.mode === 'specific_train') {
+          return t.mode === 'specific_train' && t.trainNo === body.trainNo && t.date === body.date;
+        }
+        if (body.mode === 'alight_reminder') {
+          return t.mode === 'alight_reminder' && t.trainNo === body.trainNo && t.alightStation === body.alightStation;
+        }
+        // route模式（mode未設定或為route）：用from+to+time+type+days組合比對
+        const sameRoute = t.from === body.from && t.to === body.to && t.time === body.time && t.type === body.type;
+        if (!sameRoute) return false;
+        if (body.type === 'recurring') {
+          const tDays = (t.days || []).slice().sort().join(',');
+          const bDays = (body.days || []).slice().sort().join(',');
+          return tDays === bDays;
+        }
+        return t.date === body.date;
+      });
+
+      if (isDuplicate) {
+        return sendJSON(res, 200, { ok: true, duplicate: true, message: '您已經在追蹤這個行程囉，不需要重複設定！' });
+      }
+
       const trip = {
         id: 'trip-' + Date.now(),
         ...body,
@@ -344,7 +370,7 @@ const server = http.createServer(async (req, res) => {
       db.trips.push(trip);
       delete db.pending[body.userId]; // 清除暫存
       saveDB(db);
-      return sendJSON(res, 200, { ok: true, trip });
+      return sendJSON(res, 200, { ok: true, duplicate: false, trip });
     }
 
     // ───────────────────────────────────────
