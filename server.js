@@ -207,7 +207,13 @@ async function queryNearbyTrainsForLine(fromName, toName, targetTime, dateStr, t
   let candidates;
   if (timeType === 'arrive') {
     // 依抵達時間：補上 arrMins 供排序比較
-    const withArr = trains.map(t => ({ ...t, arrMins: toMins(t.arrivalTime) }));
+    // 注意：若抵達時間數值小於出發時間，代表跨日抵達（例如23:17出發、隔天00:02到達），
+    // 此時 arrMins 要加 1440（一天的分鐘數）修正，否則會被誤判為「很早抵達」而排到最前面
+    const withArr = trains.map(t => {
+      let arrMins = toMins(t.arrivalTime);
+      if (arrMins < t.depMins) arrMins += 1440;
+      return { ...t, arrMins };
+    });
     // 優先給「抵達時間 <= 目標時間」且最接近的幾班（最符合「要在OO點前抵達」的需求）
     const onTimeOrEarly = withArr.filter(t => t.arrMins <= targetMins).slice(-3);
     // 也補上稍微晚一點的1-2班作為備選（避免完全沒有選項）
