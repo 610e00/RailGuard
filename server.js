@@ -374,6 +374,26 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ───────────────────────────────────────
+    // 【新】依車次號取消使用者的監控（給LINE「取消XX次監控」用，不需要知道trip的id）
+    // POST /api/line/cancel-trip  body: { userId, trainNo }
+    // 若同一車次有多筆（理論上不該發生，因有重複檢查），取消第一筆符合的
+    // ───────────────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/line/cancel-trip') {
+      const body = await readBody(req);
+      const { userId, trainNo } = body;
+      if (!userId || !trainNo) return sendJSON(res, 400, { error: '需要 userId, trainNo 參數' });
+      const db = loadDB();
+      const idx = db.trips.findIndex(t => t.userId === userId && t.trainNo === trainNo);
+      if (idx === -1) {
+        return sendJSON(res, 200, { ok: true, found: false, message: `找不到您監控的${trainNo}次行程，請確認車次號是否正確。` });
+      }
+      const removed = db.trips[idx];
+      db.trips.splice(idx, 1);
+      saveDB(db);
+      return sendJSON(res, 200, { ok: true, found: true, removed });
+    }
+
+    // ───────────────────────────────────────
     // 【新】查詢某使用者目前所有監控行程（給排程節點用）
     // GET /api/trips?userId=xxx  （不帶userId則回傳全部，排程用）
     // ───────────────────────────────────────
