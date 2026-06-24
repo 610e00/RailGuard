@@ -195,7 +195,8 @@ async function fetchTrainDelay(trainNo, fromStationId) {
 }
 
 // ---- 查詢前後班次（給 LINE Bot 用）----
-async function queryNearbyTrainsForLine(fromName, toName, targetTime, dateStr) {
+// timeType: 'depart'（預設，依出發時間找附近班次）或 'arrive'（依抵達時間，找抵達時間最接近且不晚於目標時間的班次）
+async function queryNearbyTrainsForLine(fromName, toName, targetTime, dateStr, timeType = 'depart') {
   const fromId = TRA_STATION_MAP[fromName];
   const toId   = TRA_STATION_MAP[toName];
   if (!fromId || !toId) throw new Error(`找不到站名: ${fromName} 或 ${toName}`);
@@ -203,9 +204,23 @@ async function queryNearbyTrainsForLine(fromName, toName, targetTime, dateStr) {
   const trains = await fetchAllTrains(fromId, toId, dateStr);
   const targetMins = toMins(targetTime);
 
-  const before = trains.filter(t => t.depMins < targetMins).slice(-2);
-  const after  = trains.filter(t => t.depMins >= targetMins).slice(0, 3);
-  const candidates = [...before, ...after].slice(0, 5);
+  let candidates;
+  if (timeType === 'arrive') {
+    // 依抵達時間：補上 arrMins 供排序比較
+    const withArr = trains.map(t => ({ ...t, arrMins: toMins(t.arrivalTime) }));
+    // 優先給「抵達時間 <= 目標時間」且最接近的幾班（最符合「要在OO點前抵達」的需求）
+    const onTimeOrEarly = withArr.filter(t => t.arrMins <= targetMins).slice(-3);
+    // 也補上稍微晚一點的1-2班作為備選（避免完全沒有選項）
+    const slightlyLate = withArr.filter(t => t.arrMins > targetMins).slice(0, 2);
+    candidates = [...onTimeOrEarly, ...slightlyLate]
+      .sort((a, b) => a.arrMins - b.arrMins)
+      .slice(0, 5)
+      .map(({ arrMins, ...rest }) => rest); // 移除暫用欄位，保持輸出格式一致
+  } else {
+    const before = trains.filter(t => t.depMins < targetMins).slice(-2);
+    const after  = trains.filter(t => t.depMins >= targetMins).slice(0, 3);
+    candidates = [...before, ...after].slice(0, 5);
+  }
 
   // 補上即時延誤（僅當天才查）
   const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
@@ -271,13 +286,14 @@ const server = http.createServer(async (req, res) => {
 
     // ───────────────────────────────────────
     // 【新】LINE Bot 用：查詢附近班次
-    // GET /api/line/nearby-trains?from=台北&to=中壢&time=08:00&date=2026-06-20
+    // GET /api/line/nearby-trains?from=台北&to=中壢&time=08:00&date=2026-06-20&timeType=depart
+    // timeType: depart（依出發時間，預設）或 arrive（依抵達時間）
     // ───────────────────────────────────────
     if (req.method === 'GET' && pathname === '/api/line/nearby-trains') {
-      const { from, to, time, date } = parsed.query;
+      const { from, to, time, date, timeType } = parsed.query;
       if (!from || !to || !time) return sendJSON(res, 400, { error: '需要 from, to, time 參數' });
       const dateStr = date || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
-      const candidates = await queryNearbyTrainsForLine(from, to, time, dateStr);
+      const candidates = await queryNearbyTrainsForLine(from, to, time, dateStr, timeType || 'depart');
       return sendJSON(res, 200, { candidates });
     }
 
