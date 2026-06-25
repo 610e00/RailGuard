@@ -181,7 +181,15 @@ async function fetchTrainByNo(trainNo, dateStr) {
 }
 
 // ---- 查詢即時延誤 ----
-async function fetchTrainDelay(trainNo, fromStationId) {
+async function fetchTrainDelay(trainNo, fromStationId, dateStr) {
+  // 優先讀取模擬誤點資料（與 /api/line/train-delay 端點邏輯一致）
+  const checkDate = dateStr || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  const db = loadDB();
+  const key = `${trainNo}-${checkDate}`;
+  if (db.simulatedDelays[key] !== undefined) {
+    return db.simulatedDelays[key];
+  }
+
   const token = await getToken();
   try {
     const tdxUrl = `https://tdx.transportdata.tw/api/basic/v3/Rail/TRA/StationLiveBoard/Station/${fromStationId}?$format=JSON`;
@@ -228,11 +236,11 @@ async function queryNearbyTrainsForLine(fromName, toName, targetTime, dateStr, t
     candidates = [...before, ...after].slice(0, 5);
   }
 
-  // 補上即時延誤（僅當天才查）
+  // 補上即時延誤（僅當天才查；模擬誤點則不受日期限制，於fetchTrainDelay內部處理）
   const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
   if (dateStr === todayStr) {
     for (const c of candidates) {
-      c.delayMins = await fetchTrainDelay(c.trainNo, fromId);
+      c.delayMins = await fetchTrainDelay(c.trainNo, fromId, dateStr);
     }
   } else {
     candidates.forEach(c => c.delayMins = null);
@@ -558,7 +566,7 @@ const server = http.createServer(async (req, res) => {
       if (dateStr !== todayStr || !stationId) {
         return sendJSON(res, 200, { trainNo, delayMins: null, source: 'unavailable' });
       }
-      const delayMins = await fetchTrainDelay(trainNo, stationId);
+      const delayMins = await fetchTrainDelay(trainNo, stationId, dateStr);
       return sendJSON(res, 200, { trainNo, delayMins, source: 'tdx_live' });
     }
 
